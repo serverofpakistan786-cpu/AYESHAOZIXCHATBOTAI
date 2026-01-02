@@ -12,66 +12,69 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-
 import google.generativeai as genai
 
-# -------------------- LOGGING --------------------
+# ---------------- LOGGING ----------------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+    level=logging.INFO
 )
 
-# -------------------- ENV --------------------
+# ---------------- ENV VARIABLES ----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
+SUPPORT_CHANNEL_LINK = os.getenv("SUPPORT_CHANNEL_LINK", "")
+GROUP_LINK = os.getenv("GROUP_LINK", "")
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
-
-# ⚠️ HARD-CODED LINKS (NO INLINE BUTTON ERROR)
-SUPPORT_CHANNEL_LINK = "https://t.me/+KKYgpQNCwbgwODdl"
-GROUP_LINK = "https://t.me/+M9pETo_ZmGFhODk9"
-
-# -------------------- GEMINI --------------------
+# ---------------- GEMINI SETUP ----------------
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-pro")
 
-# -------------------- PERSONALITY --------------------
-SYSTEM_PROMPT = (
-    "You are AYESHAXOZIX, a friendly, cute, respectful female AI chatbot.\n"
-    "You talk in Hinglish, sound caring, sweet and natural.\n"
-    "Use emojis sometimes. Do not act robotic.\n"
+model = genai.GenerativeModel(
+    model_name="models/gemini-1.5-flash"
 )
 
-# -------------------- START --------------------
+# ---------------- PERSONALITY ----------------
+SYSTEM_PROMPT = """
+You are AYESHA XOZIX, a friendly, cute, respectful female AI chatbot.
+You speak in Hinglish.
+You sound sweet, caring and natural.
+Sometimes use emojis.
+Do not sound robotic.
+"""
+
+# ---------------- START COMMAND ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
-    buttons = [
-        [
-            InlineKeyboardButton("💬 Support", url=SUPPORT_CHANNEL_LINK),
-            InlineKeyboardButton("👥 Group", url=GROUP_LINK),
-        ]
-    ]
+    buttons = []
+    if SUPPORT_CHANNEL_LINK:
+        buttons.append([InlineKeyboardButton("💬 Support", url=SUPPORT_CHANNEL_LINK)])
+    if GROUP_LINK:
+        buttons.append([InlineKeyboardButton("👥 Group", url=GROUP_LINK)])
 
     await update.message.reply_text(
         f"Heyy {user.first_name} 💖\n"
-        "Main AYESHAXOZIX hoon 😄\n"
+        "Main AYESHA XOZIX hoon 😊\n"
         "Tum mujhse kuch bhi baat kar sakte ho...",
-        reply_markup=InlineKeyboardMarkup(buttons),
+        reply_markup=InlineKeyboardMarkup(buttons) if buttons else None
     )
 
+    # Log channel (safe)
     if LOG_CHANNEL_ID != 0:
-        await context.bot.send_message(
-            LOG_CHANNEL_ID,
-            f"🆕 New User Started Bot\n👤 {user.first_name} | {user.id}",
-        )
+        try:
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"🆕 New User Started Bot\n👤 {user.first_name} | {user.id}"
+            )
+        except Exception as e:
+            logging.error(f"Log channel error: {e}")
 
-# -------------------- CHAT --------------------
+# ---------------- CHAT HANDLER ----------------
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
     text = update.message.text
 
     prompt = f"""
@@ -83,20 +86,27 @@ AI:
 
     try:
         response = model.generate_content(prompt)
-        reply = response.text.strip()
-    except Exception:
+        reply = response.candidates[0].content.parts[0].text.strip()
+    except Exception as e:
+        logging.error(f"Gemini Error: {e}")
         reply = "Aww 😕 thoda sa issue aa gaya, phir se try karo na."
 
     await update.message.reply_text(reply)
 
-# -------------------- MAIN --------------------
+# ---------------- STATS (OWNER) ----------------
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    await update.message.reply_text("✅ Bot is running fine on Koyeb")
+
+# ---------------- MAIN ----------------
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
 
-    print("✅ Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
