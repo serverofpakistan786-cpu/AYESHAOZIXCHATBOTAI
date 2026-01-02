@@ -1,7 +1,5 @@
 import os
-import logging
-from dotenv import load_dotenv
-
+import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -11,52 +9,29 @@ from telegram.ext import (
     filters,
 )
 
-import google.generativeai as genai
-from motor.motor_asyncio import AsyncIOMotorClient
-
-# ---------------- LOAD ENV ----------------
-load_dotenv()
-
+# ---------------- ENV ----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 OWNER_ID = int(os.getenv("OWNER_ID"))
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 SUPPORT_CHANNEL_LINK = os.getenv("SUPPORT_CHANNEL_LINK")
 GROUP_LINK = os.getenv("GROUP_LINK")
-MONGO_URI = os.getenv("MONGO_URI")
-
-# ---------------- LOGGING ----------------
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 
 # ---------------- GEMINI ----------------
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-pro")
 
-# ---------------- MONGO ----------------
-mongo_client = AsyncIOMotorClient(MONGO_URI)
-db = mongo_client["ayeshaxozix"]
-users_col = db["users"]
-
-# ---------------- FEMALE PERSONALITY PROMPT ----------------
+# ---------------- PERSONALITY ----------------
 SYSTEM_PROMPT = (
-    "You are AYESHAXOZIX, a friendly, cute, respectful female AI chatbot. "
-    "You talk in Hinglish, sound caring, sweet and natural. "
-    "Use emojis sometimes. Do not act robotic. "
-    "Remember user context if available."
+    "You are AYESHAXOZIX, a friendly, cute, respectful female AI chatbot.\n"
+    "You talk in Hinglish, sound caring, sweet and natural.\n"
+    "Use emojis sometimes. Do not act robotic.\n"
 )
 
 # ---------------- START ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-
-    await users_col.update_one(
-        {"user_id": user.id},
-        {"$set": {"username": user.username, "name": user.first_name}},
-        upsert=True,
-    )
 
     buttons = [
         [
@@ -68,7 +43,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"Heyy {user.first_name} 💖\n"
         "Main AYESHAXOZIX hoon 😄\n"
-        "Tum mujhse kuch bhi baat kar sakte ho…",
+        "Tum mujhse kuch bhi baat kar sakte ho...",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
 
@@ -78,19 +53,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
     )
 
-# ---------------- AI CHAT ----------------
+# ---------------- CHAT ----------------
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
     text = update.message.text
-
-    user_data = await users_col.find_one({"user_id": user.id})
-    memory = user_data.get("memory", "") if user_data else ""
 
     prompt = f"""
 {SYSTEM_PROMPT}
-
-Previous memory:
-{memory}
 
 User: {text}
 AI:
@@ -99,24 +67,16 @@ AI:
     try:
         response = model.generate_content(prompt)
         reply = response.text.strip()
-    except Exception as e:
+    except Exception:
         reply = "Awww 😕 thoda sa issue aa gaya, phir se try karo na."
 
     await update.message.reply_text(reply)
 
-    await users_col.update_one(
-        {"user_id": user.id},
-        {"$set": {"memory": text[-500:]}},
-        upsert=True,
-    )
-
-# ---------------- OWNER COMMAND ----------------
+# ---------------- OWNER STATS (NO MONGO) ----------------
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
-
-    count = await users_col.count_documents({})
-    await update.message.reply_text(f"👥 Total Users: {count}")
+    await update.message.reply_text("👑 Bot is running perfectly 💖")
 
 # ---------------- MAIN ----------------
 def main():
