@@ -2,80 +2,114 @@ import os
 import random
 import logging
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder,
-    ContextTypes,
     CommandHandler,
     MessageHandler,
+    ContextTypes,
     filters,
 )
-from google import genai
 
-# ================= CONFIG =================
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
-SUPPORT_CHANNEL = os.getenv("SUPPORT_CHANNEL")  # @username
-SUPPORT_GROUP = os.getenv("SUPPORT_GROUP")      # @username
-# =========================================
+import google.generativeai as genai
 
-# Gemini Client
-client = genai.Client(api_key=GEMINI_API_KEY)
+# ===================== LOGGING =====================
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
 
-logging.basicConfig(level=logging.INFO)
+# ===================== SAFE ENV LOADER =====================
+def get_env(name: str, cast=str):
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"❌ ENV missing: {name}")
+    try:
+        return cast(value)
+    except Exception:
+        raise RuntimeError(f"❌ ENV invalid format: {name}")
 
-REACTIONS = ["🥰", "❤️", "😍", "😘", "😊", "💖", "✨"]
+BOT_TOKEN = get_env("BOT_TOKEN")
+GEMINI_API_KEY = get_env("GEMINI_API_KEY")
+ADMIN_ID = get_env("ADMIN_ID", int)
+LOG_CHANNEL_ID = get_env("LOG_CHANNEL_ID", int)
 
-# ---------- START ----------
+SUPPORT_CHANNEL = os.getenv("SUPPORT_CHANNEL", "")
+SUPPORT_GROUP = os.getenv("SUPPORT_GROUP", "")
+
+# ===================== GEMINI =====================
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+# ===================== REACTIONS =====================
+REACTIONS = ["❤️", "😍", "🥰", "😊", "✨", "🔥", "💖", "😌"]
+
+# ===================== START =====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    await update.message.reply_text(
-        f"Hey {user.first_name} 💖\n"
-        f"Main tumhari AI dost hoon 🥰\n\n"
-        f"👉 Support: {SUPPORT_CHANNEL}\n"
-        f"👉 Group: {SUPPORT_GROUP}"
+    text = (
+        f"Hey {user.first_name} 🥰\n\n"
+        "Main ek AI chat bot hoon 🤖✨\n"
+        "Mujhse kuch bhi pooch sakte ho.\n\n"
     )
+    if SUPPORT_CHANNEL:
+        text += f"📢 Channel: {SUPPORT_CHANNEL}\n"
+    if SUPPORT_GROUP:
+        text += f"👥 Group: {SUPPORT_GROUP}\n"
+
+    await update.message.reply_text(text)
 
     await context.bot.send_message(
-        LOG_CHANNEL_ID,
-        f"🟢 Bot started by:\n👤 {user.first_name}\n🆔 {user.id}"
+        chat_id=LOG_CHANNEL_ID,
+        text=f"🚀 /start\nUser: {user.id} | @{user.username}",
     )
 
-# ---------- BROADCAST ----------
+# ===================== BROADCAST =====================
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
     if not context.args:
-        await update.message.reply_text("❌ Message do broadcast ke liye")
+        await update.message.reply_text("Usage:\n/broadcast Your message")
         return
 
     msg = " ".join(context.args)
 
-    await context.bot.send_message(LOG_CHANNEL_ID, f"📢 Broadcast:\n{msg}")
-    await update.message.reply_text("✅ Broadcast sent")
+    await context.bot.send_message(
+        chat_id=LOG_CHANNEL_ID,
+        text=f"📢 Broadcast sent:\n{msg}",
+    )
 
-# ---------- GEMINI CHAT ----------
+    await update.message.reply_text("✅ Broadcast logged (users DB optional)")
+
+# ===================== CHAT =====================
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+    if not update.message or not update.message.text:
+        return
+
+    await context.bot.send_chat_action(
+        chat_id=update.effective_chat.id,
+        action=ChatAction.TYPING,
+    )
+
+    user_text = update.message.text
 
     try:
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=text
-        )
-
+        response = model.generate_content(user_text)
         reply = response.text
-        reaction = random.choice(REACTIONS)
-
-        await update.message.reply_text(f"{reply}\n\n{reaction}")
-
     except Exception as e:
-        await update.message.reply_text("😔 Thoda issue aa gaya, baad me try karo")
-        await context.bot.send_message(LOG_CHANNEL_ID, f"❌ Error:\n{e}")
+        logging.error(e)
+        reply = "🥺 Thoda issue aa gaya, baad me try karo."
 
-# ---------- MAIN ----------
+    await update.message.reply_text(reply)
+
+    # cute reaction
+    try:
+        await update.message.reply_text(random.choice(REACTIONS))
+    except:
+        pass
+
+# ===================== MAIN =====================
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -83,7 +117,7 @@ def main():
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
 
-    print("🤖 Bot is running...")
+    logging.info("🤖 Bot started successfully")
     app.run_polling()
 
 if __name__ == "__main__":
