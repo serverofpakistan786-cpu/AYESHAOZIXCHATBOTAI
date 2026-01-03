@@ -1,125 +1,89 @@
-import logging
+import os
 import random
+import logging
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
-    MessageHandler,
     CommandHandler,
+    MessageHandler,
     filters,
 )
-import google.generativeai as genai
+from google import genai
 
-from config import (
-    BOT_TOKEN,
-    GEMINI_API_KEY,
-    OWNER_ID,
-    LOG_CHANNEL_ID,
-    SUPPORT_CHANNEL,
-    SUPPORT_GROUP,
-)
-from reactions import random_reaction
+# ================= CONFIG =================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+SUPPORT_CHANNEL = os.getenv("SUPPORT_CHANNEL")  # @username
+SUPPORT_GROUP = os.getenv("SUPPORT_GROUP")      # @username
+# =========================================
+
+# Gemini Client
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 logging.basicConfig(level=logging.INFO)
 
-# Gemini setup
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+REACTIONS = ["🥰", "❤️", "😍", "😘", "😊", "💖", "✨"]
 
-FALLBACK_REPLIES = [
-    "Thoda sa busy hoon jaan 🙈",
-    "Abhi thoda issue aa raha hai 😅",
-    "Main hoon yahin ❤️ phir try karo",
-]
-
-USERS = set()
-
-async def send_log(context, text):
-    try:
-        await context.bot.send_message(LOG_CHANNEL_ID, text)
-    except:
-        pass
-
+# ---------- START ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    USERS.add(user.id)
-
-    msg = (
-        f"Hi {user.first_name} 💖\n"
-        f"Main Gemini AI ChatBot hoon 🤖\n\n"
-        f"📢 Channel: {SUPPORT_CHANNEL}\n"
-        f"👥 Group: {SUPPORT_GROUP}"
+    await update.message.reply_text(
+        f"Hey {user.first_name} 💖\n"
+        f"Main tumhari AI dost hoon 🥰\n\n"
+        f"👉 Support: {SUPPORT_CHANNEL}\n"
+        f"👉 Group: {SUPPORT_GROUP}"
     )
 
-    await update.message.reply_text(msg)
-
-    await send_log(
-        context,
-        f"🟢 BOT STARTED\n"
-        f"👤 User: {user.first_name}\n"
-        f"🆔 ID: {user.id}",
+    await context.bot.send_message(
+        LOG_CHANNEL_ID,
+        f"🟢 Bot started by:\n👤 {user.first_name}\n🆔 {user.id}"
     )
 
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    USERS.add(user.id)
-
-    try:
-        response = model.generate_content(update.message.text)
-        reply = response.text.strip() if response.text else random.choice(FALLBACK_REPLIES)
-    except Exception as e:
-        logging.error(e)
-        reply = random.choice(FALLBACK_REPLIES)
-
-    sent = await update.message.reply_text(reply)
-
-    if random.randint(1, 100) <= 40:
-        try:
-            await context.bot.send_message(
-                chat_id=sent.chat_id,
-                text=random_reaction(),
-                reply_to_message_id=sent.message_id,
-            )
-        except:
-            pass
-
+# ---------- BROADCAST ----------
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
+    if update.effective_user.id != ADMIN_ID:
         return
 
     if not context.args:
-        await update.message.reply_text("❌ Message likho\n/broadcast Hello users")
+        await update.message.reply_text("❌ Message do broadcast ke liye")
         return
 
-    text = " ".join(context.args)
-    success = 0
+    msg = " ".join(context.args)
 
-    for uid in USERS:
-        try:
-            await context.bot.send_message(uid, text)
-            success += 1
-        except:
-            pass
+    await context.bot.send_message(LOG_CHANNEL_ID, f"📢 Broadcast:\n{msg}")
+    await update.message.reply_text("✅ Broadcast sent")
 
-    await update.message.reply_text(f"✅ Broadcast sent to {success} users")
-    await send_log(context, f"📢 BROADCAST DONE\nUsers: {success}")
+# ---------- GEMINI CHAT ----------
+async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
 
-async def bot_started(app):
     try:
-        await app.bot.send_message(
-            LOG_CHANNEL_ID,
-            "🚀 Bot is LIVE on Koyeb\nAll systems running ✅",
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=text
         )
-    except:
-        pass
 
+        reply = response.text
+        reaction = random.choice(REACTIONS)
+
+        await update.message.reply_text(f"{reply}\n\n{reaction}")
+
+    except Exception as e:
+        await update.message.reply_text("😔 Thoda issue aa gaya, baad me try karo")
+        await context.bot.send_message(LOG_CHANNEL_ID, f"❌ Error:\n{e}")
+
+# ---------- MAIN ----------
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).post_init(bot_started).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
 
+    print("🤖 Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
